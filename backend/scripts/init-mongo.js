@@ -38,7 +38,7 @@ async function main() {
     for (const name of collections) {
       if (!existingNames.has(name)) {
         await db.createCollection(name)
-        console.log(`Created collection: ${name}`)
+        console.log(Created collection: ${name})
       }
     }
     await ensureIndexes(db)
