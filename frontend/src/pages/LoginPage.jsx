@@ -1,15 +1,18 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { authHelper } from '../utils/mockData'
+import { authHelper } from '../utils/auth'
 
 export const LoginPage = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [name, setName] = useState('')
+  const [role, setRole] = useState('Technician')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [mode, setMode] = useState('login') // 'login' | 'register'
   const navigate = useNavigate()
 
-  const handleLogin = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
 
@@ -22,22 +25,28 @@ export const LoginPage = () => {
       setError('Password is required')
       return
     }
+    if (mode === 'register' && !name.trim()) {
+      setError('Name is required')
+      return
+    }
 
     setIsLoading(true)
 
-    // Simulate API call delay
-    setTimeout(() => {
-      const result = authHelper.login(email, password)
-      
+    try {
+      const result = mode === 'login'
+        ? await authHelper.login(email, password)
+        : await authHelper.register(email, password, name, role)
       if (result.success) {
         authHelper.setUser(result.user)
         navigate('/dashboard')
       } else {
         setError(result.error)
       }
-      
+    } catch (err) {
+      setError(mode === 'login' ? 'Login failed' : 'Registration failed')
+    } finally {
       setIsLoading(false)
-    }, 500)
+    }
   }
 
   const demoAccounts = [
@@ -68,8 +77,13 @@ export const LoginPage = () => {
           </div>
         )}
 
-        {/* Login Form */}
-        <form onSubmit={handleLogin} className="space-y-5">
+        {/* Auth Form */}
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Mode Toggle */}
+          <div className="flex items-center justify-center space-x-2">
+            <button type="button" onClick={() => setMode('login')} className={`px-3 py-1 rounded ${mode==='login' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Login</button>
+            <button type="button" onClick={() => setMode('register')} className={`px-3 py-1 rounded ${mode==='register' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Create Account</button>
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Email
@@ -98,12 +112,41 @@ export const LoginPage = () => {
             />
           </div>
 
+          {mode === 'register' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your Name"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                  disabled={isLoading}
+                >
+                  <option>Technician</option>
+                  <option>Manager</option>
+                  <option>Admin</option>
+                </select>
+              </div>
+            </>
+          )}
+
           <button
             type="submit"
             disabled={isLoading}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-2 rounded-lg transition duration-200"
           >
-            {isLoading ? 'Logging in...' : 'Login'}
+            {isLoading ? (mode==='login' ? 'Logging in...' : 'Creating account...') : (mode==='login' ? 'Login' : 'Create Account')}
           </button>
         </form>
 
@@ -128,9 +171,9 @@ export const LoginPage = () => {
 
         {/* Footer Links */}
         <div className="text-center mt-6 text-sm text-gray-600">
-          <a href="#" className="text-blue-600 hover:underline">
+          <button onClick={() => navigate('/forgot')} className="text-blue-600 hover:underline">
             Forgot Password?
-          </a>
+          </button>
         </div>
       </div>
     </div>

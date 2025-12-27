@@ -1,7 +1,7 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Menu, X, LogOut } from 'lucide-react'
-import { authHelper } from '../utils/mockData'
+import { authHelper } from '../utils/auth'
 
 export const Navbar = ({ isMobileMenuOpen, setIsMobileMenuOpen }) => {
   const navigate = useNavigate()

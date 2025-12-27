@@ -1,23 +1,30 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { BarChart, PieChart, TrendingUp, Calendar } from 'lucide-react'
-import { mockMaintenanceRequests, mockEquipment } from '../utils/mockData'
+import { api } from '../utils/api'
 
 export const Reports = () => {
+  const [requests, setRequests] = useState([])
+  const [equipment, setEquipment] = useState([])
+  useEffect(() => {
+    Promise.all([api.listRequests(), api.listEquipment()])
+      .then(([reqs, eq]) => { setRequests(reqs); setEquipment(eq) })
+      .catch(() => {})
+  }, [])
   // Calculate statistics
-  const totalRequests = mockMaintenanceRequests.length
-  const completedRequests = mockMaintenanceRequests.filter(r => r.status === 'Repaired').length
-  const pendingRequests = mockMaintenanceRequests.filter(r => ['New', 'In Progress'].includes(r.status)).length
+  const totalRequests = requests.length
+  const completedRequests = requests.filter(r => r.status === 'Repaired').length
+  const pendingRequests = requests.filter(r => ['New', 'In Progress'].includes(r.status)).length
   
-  const preventiveCount = mockMaintenanceRequests.filter(r => r.requestType === 'Preventive').length
-  const correctiveCount = mockMaintenanceRequests.filter(r => r.requestType === 'Corrective').length
+  const preventiveCount = requests.filter(r => r.requestType === 'Preventive').length
+  const correctiveCount = requests.filter(r => r.requestType === 'Corrective').length
 
-  const highPriority = mockMaintenanceRequests.filter(r => r.priority === 'High').length
-  const mediumPriority = mockMaintenanceRequests.filter(r => r.priority === 'Medium').length
-  const lowPriority = mockMaintenanceRequests.filter(r => r.priority === 'Low').length
+  const highPriority = requests.filter(r => r.priority === 'High').length
+  const mediumPriority = requests.filter(r => r.priority === 'Medium').length
+  const lowPriority = requests.filter(r => r.priority === 'Low').length
 
-  const operationalEquipment = mockEquipment.filter(e => e.status === 'Operational').length
-  const maintenanceEquipment = mockEquipment.filter(e => e.status === 'Maintenance').length
-  const overdueEquipment = mockEquipment.filter(e => e.status === 'Overdue').length
+  const operationalEquipment = equipment.filter(e => e.status === 'Operational').length
+  const maintenanceEquipment = equipment.filter(e => e.status === 'Maintenance').length
+  const overdueEquipment = equipment.filter(e => e.status === 'Overdue').length
 
   const stats = [
     {
@@ -165,7 +172,7 @@ export const Reports = () => {
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-green-600 h-2 rounded-full"
-                  style={{ width: `${(operationalEquipment / mockEquipment.length) * 100}%` }}
+                  style={{ width: `${(operationalEquipment / (equipment.length || 1)) * 100}%` }}
                 ></div>
               </div>
             </div>
@@ -178,7 +185,7 @@ export const Reports = () => {
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-yellow-600 h-2 rounded-full"
-                  style={{ width: `${(maintenanceEquipment / mockEquipment.length) * 100}%` }}
+                  style={{ width: `${(maintenanceEquipment / (equipment.length || 1)) * 100}%` }}
                 ></div>
               </div>
             </div>
@@ -191,7 +198,7 @@ export const Reports = () => {
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-red-600 h-2 rounded-full"
-                  style={{ width: `${(overdueEquipment / mockEquipment.length) * 100}%` }}
+                  style={{ width: `${(overdueEquipment / (equipment.length || 1)) * 100}%` }}
                 ></div>
               </div>
             </div>
@@ -249,7 +256,7 @@ export const Reports = () => {
               </tr>
             </thead>
             <tbody>
-              {mockMaintenanceRequests.slice(0, 5).map((req) => (
+              {requests.slice(0, 5).map((req) => (
                 <tr key={req.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="py-3 px-4 text-gray-900 font-medium">{req.equipmentName}</td>
                   <td className="py-3 px-4 text-gray-600">{req.requestType}</td>

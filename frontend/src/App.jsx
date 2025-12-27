@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Navbar } from './components/Sidebar'
 import { ProtectedRoute, RoleBasedRoute } from './components/ProtectedRoute'
 import { LoginPage } from './pages/LoginPage'
+import { ForgotPassword } from './pages/ForgotPassword'
+import { ResetPassword } from './pages/ResetPassword'
 import { Dashboard } from './pages/Dashboard'
 import { EquipmentManagement } from './pages/EquipmentManagement'
 import { MaintenanceRequests } from './pages/MaintenanceRequests'
@@ -10,7 +12,7 @@ import { KanbanBoard } from './pages/KanbanBoard'
 import { CalendarView } from './pages/CalendarView'
 import { TeamManagement } from './pages/TeamManagement'
 import { Reports } from './pages/Reports'
-import { authHelper } from './utils/mockData'
+import { authHelper } from './utils/auth'
 
 export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -112,6 +114,8 @@ export default function App() {
       ) : (
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot" element={<ForgotPassword />} />
+          <Route path="/reset" element={<ResetPassword />} />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       )}

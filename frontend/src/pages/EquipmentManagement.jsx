@@ -1,9 +1,9 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Plus, Eye, Edit2, Trash2 } from 'lucide-react'
-import { mockEquipment } from '../utils/mockData'
+import { api } from '../utils/api'
 
 export const EquipmentManagement = () => {
-  const [equipment, setEquipment] = useState(mockEquipment)
+  const [equipment, setEquipment] = useState([])
   const [selectedEquipment, setSelectedEquipment] = useState(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [formData, setFormData] = useState({
@@ -12,6 +12,14 @@ export const EquipmentManagement = () => {
     location: '',
     maintenanceSchedule: 30
   })
+
+  useEffect(() => {
+    let mounted = true
+    api.listEquipment()
+      .then(data => { if (mounted) setEquipment(data) })
+      .catch(() => { if (mounted) setEquipment([]) })
+    return () => { mounted = false }
+  }, [])
 
   const handleAddEquipment = () => {
     setSelectedEquipment(null)
@@ -25,30 +33,38 @@ export const EquipmentManagement = () => {
     setIsFormOpen(true)
   }
 
-  const handleSaveEquipment = () => {
+  const handleSaveEquipment = async () => {
     if (!formData.name || !formData.type || !formData.location) {
       alert('Please fill in all fields')
       return
     }
-
-    if (selectedEquipment) {
-      setEquipment(equipment.map(eq => eq.id === selectedEquipment.id ? { ...selectedEquipment, ...formData } : eq))
-    } else {
-      const newEquipment = {
-        ...formData,
-        id: Math.max(...equipment.map(e => e.id)) + 1,
-        status: 'Operational',
-        lastMaintenance: new Date().toISOString().split('T')[0]
+    try {
+      if (selectedEquipment) {
+        const updated = await api.updateEquipment(selectedEquipment.id, {
+          ...selectedEquipment,
+          ...formData,
+          lastMaintenance: selectedEquipment.lastMaintenance || new Date().toISOString().split('T')[0],
+          status: selectedEquipment.status || 'Operational'
+        })
+        setEquipment(equipment.map(eq => eq.id === updated.id ? updated : eq))
+      } else {
+        const created = await api.createEquipment(formData)
+        setEquipment([...equipment, created])
       }
-      setEquipment([...equipment, newEquipment])
+      setIsFormOpen(false)
+    } catch (e) {
+      alert('Failed to save equipment')
     }
-
-    setIsFormOpen(false)
   }
 
-  const handleDeleteEquipment = (id) => {
+  const handleDeleteEquipment = async (id) => {
     if (confirm('Are you sure you want to delete this equipment?')) {
-      setEquipment(equipment.filter(eq => eq.id !== id))
+      try {
+        await api.deleteEquipment(id)
+        setEquipment(equipment.filter(eq => eq.id !== id))
+      } catch (e) {
+        alert('Failed to delete equipment')
+      }
     }
   }
 
@@ -56,9 +72,19 @@ export const EquipmentManagement = () => {
     const statusStyles = {
       'Operational': 'bg-green-100 text-green-800',
       'Maintenance': 'bg-yellow-100 text-yellow-800',
-      'Overdue': 'bg-red-100 text-red-800'
+      'Overdue': 'bg-red-100 text-red-800',
+      'Unoperational': 'bg-red-100 text-red-800'
     }
     return statusStyles[status] || 'bg-gray-100 text-gray-800'
+  }
+
+  const handleStatusChange = async (eq, newStatus) => {
+    try {
+      const updated = await api.updateEquipment(eq.id, { ...eq, status: newStatus })
+      setEquipment(prev => prev.map(e => (e.id === updated.id ? updated : e)))
+    } catch (e) {
+      alert('Failed to update status')
+    }
   }
 
   return (
@@ -99,9 +125,19 @@ export const EquipmentManagement = () => {
                 <td className="px-6 py-4 text-sm text-gray-600">{eq.type}</td>
                 <td className="px-6 py-4 text-sm text-gray-600">{eq.location}</td>
                 <td className="px-6 py-4">
-                  <span className={`text-xs font-semibold px-3 py-1 rounded-full ${getStatusBadge(eq.status)}`}>
-                    {eq.status}
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${getStatusBadge(eq.status)}`}>
+                      {eq.status}
+                    </span>
+                    <select
+                      value={eq.status === 'Operational' ? 'Operational' : 'Unoperational'}
+                      onChange={(e) => handleStatusChange(eq, e.target.value)}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded"
+                    >
+                      <option value="Operational">Operational</option>
+                      <option value="Unoperational">Unoperational</option>
+                    </select>
+                  </div>
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-600">{eq.lastMaintenance}</td>
                 <td className="px-6 py-4 text-sm text-gray-600">{eq.maintenanceSchedule} days</td>
@@ -141,6 +177,17 @@ export const EquipmentManagement = () => {
             <p className="text-sm text-gray-600">{eq.location}</p>
             <p className="text-xs text-gray-500">Last: {eq.lastMaintenance} | Every {eq.maintenanceSchedule} days</p>
             <div className="flex space-x-2 pt-2">
+              <div className="flex-1">
+                <label className="block text-xs text-gray-600 mb-1">Status</label>
+                <select
+                  value={eq.status === 'Operational' ? 'Operational' : 'Unoperational'}
+                  onChange={(e) => handleStatusChange(eq, e.target.value)}
+                  className="w-full text-sm px-3 py-2 border border-gray-300 rounded"
+                >
+                  <option value="Operational">Operational</option>
+                  <option value="Unoperational">Unoperational</option>
+                </select>
+              </div>
               <button
                 onClick={() => handleEditEquipment(eq)}
                 className="flex-1 text-sm px-3 py-2 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition"

@@ -1,6 +1,6 @@
 import React from 'react'
 import { Navigate } from 'react-router-dom'
-import { authHelper } from '../utils/mockData'
+import { authHelper } from '../utils/auth'
 
 // Protected route that requires authentication
 export const ProtectedRoute = ({ children }) => {

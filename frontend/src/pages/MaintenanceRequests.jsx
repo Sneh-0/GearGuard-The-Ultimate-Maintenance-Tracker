@@ -1,9 +1,27 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Plus, Edit2, Eye } from 'lucide-react'
-import { mockMaintenanceRequests, mockEquipment } from '../utils/mockData'
+import { api } from '../utils/api'
+import { authHelper } from '../utils/auth'
 
 export const MaintenanceRequests = () => {
-  const [requests, setRequests] = useState(mockMaintenanceRequests)
+  const [requests, setRequests] = useState([])
+  const [equipmentOptions, setEquipmentOptions] = useState([])
+  const [teamOptions, setTeamOptions] = useState([])
+  const currentUser = authHelper.getCurrentUser()
+  const isTechnician = (currentUser?.role === 'Technician')
+    useEffect(() => {
+      let mounted = true
+      Promise.all([api.listRequests(), api.listEquipment(), api.listTeams()])
+        .then(([reqs, eq, teams]) => {
+          if (mounted) {
+            setRequests(reqs)
+            setEquipmentOptions(eq)
+            setTeamOptions(teams)
+          }
+        })
+        .catch(() => { if (mounted) setRequests([]) })
+      return () => { mounted = false }
+    }, [])
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [selectedRequest, setSelectedRequest] = useState(null)
   const [formData, setFormData] = useState({
@@ -11,7 +29,8 @@ export const MaintenanceRequests = () => {
     requestType: 'Corrective',
     priority: 'Medium',
     description: '',
-    scheduledDate: ''
+    scheduledDate: '',
+    assignedTeamId: ''
   })
 
   const handleAddRequest = () => {
@@ -21,7 +40,8 @@ export const MaintenanceRequests = () => {
       requestType: 'Corrective',
       priority: 'Medium',
       description: '',
-      scheduledDate: ''
+      scheduledDate: '',
+      assignedTeamId: ''
     })
     setIsFormOpen(true)
   }
@@ -33,49 +53,59 @@ export const MaintenanceRequests = () => {
       requestType: req.requestType,
       priority: req.priority,
       description: req.description,
-      scheduledDate: req.scheduledDate || ''
+      scheduledDate: req.scheduledDate || '',
+      assignedTeamId: req.assignedTeamId || ''
     })
     setIsFormOpen(true)
   }
 
-  const handleSaveRequest = () => {
+  const handleSaveRequest = async () => {
     if (!formData.equipmentId || !formData.description) {
       alert('Please fill in all required fields')
       return
     }
 
-    const equipment = mockEquipment.find(e => e.id === parseInt(formData.equipmentId))
+    const equipment = equipmentOptions.find(e => e.id === formData.equipmentId)
 
     if (selectedRequest) {
-      setRequests(requests.map(req =>
-        req.id === selectedRequest.id
-          ? {
-              ...selectedRequest,
-              equipmentId: parseInt(formData.equipmentId),
-              equipmentName: equipment.name,
-              requestType: formData.requestType,
-              priority: formData.priority,
-              description: formData.description,
-              scheduledDate: formData.scheduledDate
-            }
-          : req
-      ))
+      try {
+        const updated = await api.updateRequest(selectedRequest.id, {
+          equipmentId: formData.equipmentId,
+          equipmentName: equipment.name,
+          requestType: formData.requestType,
+          priority: formData.priority,
+          description: formData.description,
+          scheduledDate: formData.scheduledDate || null,
+          assignedTeamId: formData.assignedTeamId || null,
+          assignedTeamName: formData.assignedTeamId ? (teamOptions.find(t => t.id === formData.assignedTeamId)?.name || null) : null
+        })
+        setRequests(requests.map(req => req.id === updated.id ? updated : req))
+      } catch (e) {
+        alert('Failed to save request changes')
+        return
+      }
     } else {
       const newRequest = {
-        id: Math.max(...requests.map(r => r.id), 100) + 1,
-        equipmentId: parseInt(formData.equipmentId),
+        equipmentId: formData.equipmentId,
         equipmentName: equipment.name,
         requestType: formData.requestType,
         status: 'New',
         priority: formData.priority,
         description: formData.description,
         requestedBy: 'Current User',
-        assignedTo: null,
+        assignedTeamId: formData.assignedTeamId || null,
+        assignedTeamName: formData.assignedTeamId ? (teamOptions.find(t => t.id === formData.assignedTeamId)?.name || null) : null,
         createdDate: new Date().toISOString().split('T')[0],
         dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         scheduledDate: formData.scheduledDate || null
       }
-      setRequests([...requests, newRequest])
+      try {
+        const created = await api.createRequest(newRequest)
+        setRequests([...requests, created])
+      } catch (e) {
+        alert('Failed to create request')
+        return
+      }
     }
 
     setIsFormOpen(false)
@@ -127,7 +157,7 @@ export const MaintenanceRequests = () => {
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Priority</th>
               <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Due Date</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Assigned To</th>
+              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Team</th>
               <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">Actions</th>
             </tr>
           </thead>
@@ -147,7 +177,7 @@ export const MaintenanceRequests = () => {
                   </span>
                 </td>
                 <td className="px-6 py-4 text-sm text-gray-600">{req.dueDate}</td>
-                <td className="px-6 py-4 text-sm text-gray-600">{req.assignedTo || '-'}</td>
+                <td className="px-6 py-4 text-sm text-gray-600">{req.assignedTeamName || '-'}</td>
                 <td className="px-6 py-4 text-right space-x-2">
                   <button
                     onClick={() => handleEditRequest(req)}
@@ -179,7 +209,7 @@ export const MaintenanceRequests = () => {
             <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
               <p>Status: <strong>{req.status}</strong></p>
               <p>Due: <strong>{req.dueDate}</strong></p>
-              <p>Assigned: <strong>{req.assignedTo || 'Unassigned'}</strong></p>
+              <p>Team: <strong>{req.assignedTeamName || '-'}</strong></p>
             </div>
             <button
               onClick={() => handleEditRequest(req)}
@@ -207,7 +237,7 @@ export const MaintenanceRequests = () => {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               >
                 <option value="">Select equipment...</option>
-                {mockEquipment.map((eq) => (
+                {equipmentOptions.map((eq) => (
                   <option key={eq.id} value={eq.id}>{eq.name}</option>
                 ))}
               </select>
@@ -256,6 +286,24 @@ export const MaintenanceRequests = () => {
                 onChange={(e) => setFormData({ ...formData, scheduledDate: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Assign Team</label>
+              <select
+                value={formData.assignedTeamId}
+                onChange={(e) => setFormData({ ...formData, assignedTeamId: isTechnician ? '' : e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                disabled={isTechnician}
+              >
+                <option value="">Select team...</option>
+                {teamOptions.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              {isTechnician && (
+                <p className="text-xs text-gray-500 mt-1">Technicians cannot assign teams. Ask a Manager/Admin.</p>
+              )}
             </div>
 
             <div className="flex space-x-3 pt-4">

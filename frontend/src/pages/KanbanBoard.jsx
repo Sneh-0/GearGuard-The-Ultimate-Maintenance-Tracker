@@ -1,9 +1,12 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { GripVertical } from 'lucide-react'
-import { mockMaintenanceRequests } from '../utils/mockData'
+import { api } from '../utils/api'
 
 export const KanbanBoard = () => {
-  const [requests, setRequests] = useState(mockMaintenanceRequests)
+  const [requests, setRequests] = useState([])
+  useEffect(() => {
+    api.listRequests().then(setRequests).catch(() => setRequests([]))
+  }, [])
   const [draggedItem, setDraggedItem] = useState(null)
 
   const columns = ['New', 'In Progress', 'Repaired', 'Scrap']
@@ -20,16 +23,21 @@ export const KanbanBoard = () => {
     e.preventDefault()
   }
 
-  const handleDrop = (targetStatus) => {
+  const handleDrop = async (targetStatus) => {
     if (!draggedItem) return
-
-    setRequests(requests.map(req =>
-      req.id === draggedItem.request.id
-        ? { ...req, status: targetStatus }
-        : req
-    ))
-
+    const { request } = draggedItem
+    // Optimistic UI update
+    setRequests(prev => prev.map(req => req.id === request.id ? { ...req, status: targetStatus } : req))
     setDraggedItem(null)
+    // Persist to backend
+    try {
+      const updated = await api.updateRequest(request.id, { status: targetStatus })
+      setRequests(prev => prev.map(req => req.id === updated.id ? updated : req))
+    } catch (e) {
+      // Revert on failure
+      setRequests(prev => prev.map(req => req.id === request.id ? { ...req, status: request.status } : req))
+      alert('Failed to update status')
+    }
   }
 
   const getPriorityColor = (priority) => {

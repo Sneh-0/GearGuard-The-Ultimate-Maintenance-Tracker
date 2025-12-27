@@ -1,72 +1,72 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Plus, Edit2, Trash2, Users } from 'lucide-react'
-import { mockTeams } from '../utils/mockData'
+import { api } from '../utils/api'
 
 export const TeamManagement = () => {
-  const [teams, setTeams] = useState(mockTeams)
+  const [teams, setTeams] = useState([])
+  useEffect(() => { api.listTeams().then(setTeams).catch(() => setTeams([])) }, [])
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [selectedTeam, setSelectedTeam] = useState(null)
   const [formData, setFormData] = useState({
     name: '',
     lead: '',
-    members: ''
+    members: []
   })
+    const [techOptions, setTechOptions] = useState([])
+    useEffect(() => { api.listTechnicians().then(setTechOptions).catch(() => setTechOptions([])) }, [])
 
   const handleAddTeam = () => {
     setSelectedTeam(null)
-    setFormData({ name: '', lead: '', members: '' })
+    setFormData({ name: '', lead: '', members: [] })
     setIsFormOpen(true)
   }
 
   const handleEditTeam = (team) => {
     setSelectedTeam(team)
-    setFormData({
-      name: team.name,
-      lead: team.lead,
-      members: team.members.join(', ')
-    })
+      // team.members comes as [{email, name}] from backend; map to emails for editing
+      const emails = (team.members || []).map(m => (typeof m === 'string' ? m : m.email)).filter(Boolean)
+      setFormData({ name: team.name, lead: team.lead, members: emails })
     setIsFormOpen(true)
   }
 
-  const handleSaveTeam = () => {
+  const handleSaveTeam = async () => {
     if (!formData.name || !formData.lead) {
       alert('Please fill in all required fields')
       return
     }
 
-    const membersList = formData.members
-      .split(',')
-      .map(m => m.trim())
-      .filter(m => m.length > 0)
-
-    if (selectedTeam) {
-      setTeams(teams.map(t =>
-        t.id === selectedTeam.id
-          ? {
-              ...selectedTeam,
-              name: formData.name,
-              lead: formData.lead,
-              members: membersList
-            }
-          : t
-      ))
-    } else {
-      const newTeam = {
-        id: Math.max(...teams.map(t => t.id), 0) + 1,
-        name: formData.name,
-        lead: formData.lead,
-        members: membersList,
-        assignedEquipment: []
+    try {
+      if (selectedTeam) {
+        const updated = await api.updateTeam(selectedTeam.id, {
+          name: formData.name,
+          lead: formData.lead,
+          members: formData.members
+        })
+          // Refetch to get member names hydrated
+          const fresh = await api.listTeams()
+          setTeams(fresh)
+      } else {
+        const created = await api.createTeam({
+          name: formData.name,
+          lead: formData.lead,
+          members: formData.members
+        })
+          const fresh = await api.listTeams()
+          setTeams(fresh)
       }
-      setTeams([...teams, newTeam])
+      setIsFormOpen(false)
+    } catch (e) {
+      alert('Failed to save team')
     }
-
-    setIsFormOpen(false)
   }
 
-  const handleDeleteTeam = (id) => {
-    if (confirm('Are you sure you want to delete this team?')) {
+  const handleDeleteTeam = async (id) => {
+    if (!confirm('Are you sure you want to delete this team?')) return
+    try {
+      await api.deleteTeam(id)
       setTeams(teams.filter(t => t.id !== id))
+    } catch (e) {
+      alert('Failed to delete team')
     }
   }
 
@@ -125,17 +125,17 @@ export const TeamManagement = () => {
                   Members ({team.members.length})
                 </p>
                 <div className="space-y-1">
-                  {team.members.map((member, idx) => (
-                    <p key={idx} className="text-sm text-gray-700 flex items-center">
-                      <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                      {member}
-                    </p>
-                  ))}
+                    {team.members.map((member, idx) => (
+                      <p key={idx} className="text-sm text-gray-700 flex items-center">
+                        <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                        {member.name ? `${member.name} (${member.email})` : member.email}
+                      </p>
+                    ))}
                 </div>
               </div>
 
               {/* Assigned Equipment */}
-              {team.assignedEquipment.length > 0 && (
+              {Array.isArray(team.assignedEquipment) && team.assignedEquipment.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
                     Equipment ({team.assignedEquipment.length})
@@ -204,15 +204,42 @@ export const TeamManagement = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Members (comma separated)
+                Members
               </label>
-              <textarea
-                value={formData.members}
-                onChange={(e) => setFormData({ ...formData, members: e.target.value })}
-                placeholder="John Doe, Jane Smith, Bob Johnson"
-                rows="3"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              />
+              <div className="space-y-2">
+                {(formData.members || []).map((member, idx) => (
+                  <div key={idx} className="flex items-center space-x-2">
+                      <select
+                        value={member}
+                        onChange={(e) => {
+                          const next = [...formData.members]
+                          next[idx] = e.target.value
+                          setFormData({ ...formData, members: next })
+                        }}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">Select technician...</option>
+                        {techOptions.map(t => (
+                          <option key={t.email} value={t.email}>{t.name} ({t.email})</option>
+                        ))}
+                      </select>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, members: formData.members.filter((_, i) => i !== idx) })}
+                      className="px-3 py-2 text-red-600 border border-red-200 rounded hover:bg-red-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, members: [...(formData.members || []), ''] })}
+                  className="px-3 py-2 text-sm bg-gray-100 rounded hover:bg-gray-200"
+                >
+                  + Add Member
+                </button>
+              </div>
             </div>
 
             <div className="flex space-x-3 pt-4">

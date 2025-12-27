@@ -1,16 +1,35 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { mockMaintenanceRequests } from '../utils/mockData'
-import { format, getDate, getDaysInMonth, getDay } from 'date-fns'
+import { api } from '../utils/api'
+import { authHelper } from '../utils/auth'
+import { format, startOfToday, isBefore } from 'date-fns'
 
 export const CalendarView = () => {
   const [currentDate, setCurrentDate] = useState(new Date(2025, 11, 27))
+  const [scheduledRequests, setScheduledRequests] = useState([])
+  const [equipmentOptions, setEquipmentOptions] = useState([])
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [scheduleForm, setScheduleForm] = useState({ equipmentId: '', description: '', priority: 'Medium', requestType: 'Preventive', assignedTeamId: '' })
+  const [teamOptions, setTeamOptions] = useState([])
+  const role = authHelper.getCurrentRole()
 
-  // Get only preventive requests
-  const preventiveRequests = mockMaintenanceRequests.filter(r => r.requestType === 'Preventive')
+  useEffect(() => {
+    Promise.all([api.listRequests(), api.listEquipment(), api.listTeams()])
+      .then(([reqs, eq, teams]) => {
+        setScheduledRequests(reqs.filter(r => !!r.scheduledDate))
+        setEquipmentOptions(eq)
+        setTeamOptions(teams)
+      })
+      .catch(() => {
+        setScheduledRequests([])
+        setEquipmentOptions([])
+        setTeamOptions([])
+      })
+  }, [])
 
   const getRequestsForDate = (date) => {
-    return preventiveRequests.filter(r => r.scheduledDate === format(date, 'yyyy-MM-dd'))
+    return scheduledRequests.filter(r => r.scheduledDate === format(date, 'yyyy-MM-dd'))
   }
 
   const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
@@ -52,7 +71,63 @@ export const CalendarView = () => {
   }
 
   const handleScheduleMaintenance = (date) => {
-    alert(`Schedule maintenance for ${format(date, 'MMMM dd, yyyy')}`)
+    const todayStart = startOfToday()
+    if (isBefore(date, todayStart)) {
+      alert('You cannot schedule maintenance for past dates.')
+      return
+    }
+    if (role === 'Technician') {
+      alert('Technicians cannot add requests through calendar.')
+      return
+    }
+    setSelectedDate(date)
+    setScheduleForm({ equipmentId: '', description: '', priority: 'Medium', requestType: 'Preventive', assignedTeamId: '' })
+    setIsModalOpen(true)
+  }
+
+  const handleSubmitSchedule = async () => {
+    if (!scheduleForm.equipmentId) {
+      alert('Please select equipment')
+      return
+    }
+    const eq = equipmentOptions.find(e => e.id === scheduleForm.equipmentId)
+    if (!eq) {
+      alert('Selected equipment not found')
+      return
+    }
+    const todayStart = startOfToday()
+    if (isBefore(selectedDate, todayStart)) {
+      alert('Selected date is in the past. Choose a future date.')
+      return
+    }
+    const user = authHelper.getCurrentUser()
+    const scheduledDateStr = format(selectedDate, 'yyyy-MM-dd')
+    const newRequest = {
+      equipmentId: eq.id,
+      equipmentName: eq.name,
+      requestType: scheduleForm.requestType || 'Preventive',
+      status: 'New',
+      priority: scheduleForm.priority || 'Medium',
+      description: scheduleForm.description || `${scheduleForm.requestType || 'Preventive'} maintenance scheduled for ${scheduledDateStr}`,
+      requestedBy: user?.name || 'Current User',
+      createdDate: format(new Date(), 'yyyy-MM-dd'),
+      dueDate: scheduledDateStr,
+      scheduledDate: scheduledDateStr
+    }
+    if (scheduleForm.assignedTeamId && role !== 'Technician') {
+      const team = teamOptions.find(t => t.id === scheduleForm.assignedTeamId)
+      if (team) {
+        newRequest.assignedTeamId = team.id
+        newRequest.assignedTeamName = team.name
+      }
+    }
+    try {
+      const created = await api.createRequest(newRequest)
+      setScheduledRequests(prev => [created, ...prev])
+      setIsModalOpen(false)
+    } catch (e) {
+      alert('Failed to schedule maintenance')
+    }
   }
 
   return (
@@ -106,14 +181,18 @@ export const CalendarView = () => {
                 return (
                   <div
                     key={`${weekIdx}-${dayIdx}`}
-                    onClick={() => isCurrent && handleScheduleMaintenance(date)}
+                    onClick={() => {
+                      const todayStart = startOfToday()
+                      if (!isCurrent || isBefore(date, todayStart)) return
+                      handleScheduleMaintenance(date)
+                    }}
                     className={`aspect-square p-2 rounded-lg border-2 flex flex-col justify-start cursor-pointer transition ${
                       isToday(date)
                         ? 'border-blue-500 bg-blue-50'
                         : hasEvents
                         ? 'border-green-500 bg-green-50'
                         : isCurrent
-                        ? 'border-gray-200 hover:border-gray-300'
+                        ? (isBefore(date, startOfToday()) ? 'border-gray-200 bg-gray-50 cursor-not-allowed' : 'border-gray-200 hover:border-gray-300')
                         : 'border-gray-100 bg-gray-50'
                     } ${!isCurrent ? 'opacity-50' : ''}`}
                   >
@@ -150,9 +229,9 @@ export const CalendarView = () => {
         <div className="space-y-4">
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h3 className="font-bold text-gray-900 mb-4">Scheduled Maintenance</h3>
-            {preventiveRequests.length > 0 ? (
+            {scheduledRequests.length > 0 ? (
               <div className="space-y-3 max-h-96 overflow-y-auto">
-                {preventiveRequests
+                {scheduledRequests
                   .filter(r => r.scheduledDate)
                   .sort((a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate))
                   .map((request) => (
@@ -167,6 +246,39 @@ export const CalendarView = () => {
                       <p className="text-xs text-gray-600">
                         Status: <strong>{request.status}</strong>
                       </p>
+                      {request.requestType && (
+                        <p className="text-xs text-gray-600">
+                          Type: <strong>{request.requestType}</strong>
+                        </p>
+                      )}
+                      {request.assignedTeamName && (
+                        <p className="text-xs text-gray-600">
+                          Team: <strong>{request.assignedTeamName}</strong>
+                        </p>
+                      )}
+                      {request.priority && (
+                        <p className="text-xs text-gray-600">
+                          Priority: <strong>{request.priority}</strong>
+                        </p>
+                      )}
+                      
+                      <div className="mt-2 flex justify-end">
+                        {role !== 'Technician' && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await api.deleteRequest(request.id)
+                                setScheduledRequests(prev => prev.filter(r => r.id !== request.id))
+                              } catch (e) {
+                                alert('Failed to remove scheduled request')
+                              }
+                            }}
+                            className="text-xs px-2 py-1 border border-red-300 text-red-700 rounded hover:bg-red-50 transition"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
               </div>
@@ -182,6 +294,94 @@ export const CalendarView = () => {
           </div>
         </div>
       </div>
+
+      {/* Schedule Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 space-y-4">
+            <h2 className="text-xl font-bold text-gray-900">Schedule Maintenance</h2>
+            <p className="text-sm text-gray-600">Date: {selectedDate ? format(selectedDate, 'MMMM dd, yyyy') : ''}</p>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Equipment *</label>
+              <select
+                value={scheduleForm.equipmentId}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, equipmentId: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="">Select equipment...</option>
+                {equipmentOptions.map(eq => (
+                  <option key={eq.id} value={eq.id}>{eq.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
+              <select
+                value={scheduleForm.requestType}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, requestType: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="Preventive">Preventive</option>
+                <option value="Corrective">Corrective</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+              <select
+                value={scheduleForm.priority}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, priority: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                {['Low','Medium','High'].map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Assign Team</label>
+              <select
+                value={scheduleForm.assignedTeamId}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, assignedTeamId: e.target.value })}
+                disabled={role === 'Technician'}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-500"
+              >
+                <option value="">Select team...</option>
+                {teamOptions.map(team => (
+                  <option key={team.id} value={team.id}>{team.name}</option>
+                ))}
+              </select>
+              {role === 'Technician' && (
+                <p className="text-xs text-gray-500 mt-1">Technicians cannot assign teams.</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+              <textarea
+                value={scheduleForm.description}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, description: e.target.value })}
+                rows="3"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="Optional details for this maintenance"
+              />
+            </div>
+            
+            <div className="flex space-x-3 pt-2">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitSchedule}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              >
+                Schedule
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
